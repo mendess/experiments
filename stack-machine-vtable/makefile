@@ -1,7 +1,7 @@
 CFLAGS := -Wall -Wextra -pedantic -Wconversion -Wsign-conversion -g
 PROG := stk
 
-$(PROG): main.o stack.o value.o result.o bytes.o
+$(PROG): main.o stack.o value.o result.o
 	$(CC) $(CFLAGS) $^ -o $(PROG)
 
 clean:

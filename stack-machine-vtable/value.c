@@ -8,19 +8,17 @@
 #include <sys/types.h>
 
 long const* value_as_long(Value const* value) {
-    return value->table->type == TYPE_INTEGER ? (long const*) value->bytes.buf
-                                              : NULL;
+    return value->table->type == TYPE_INTEGER ? &value->bytes.as_long : NULL;
 }
 
 char* const* value_as_string(Value const* value) {
-    return value->table->type == TYPE_STRING ? (char* const*) value->bytes.buf
-                                             : NULL;
+    return value->table->type == TYPE_STRING ? &value->bytes.as_str : NULL;
 }
 
 // long
 RuntimeResult integer_add(Bytes lhs, Value const* rhs, Stack* stack) {
     (void) stack;
-    long lhs_l = b_to_long(lhs);
+    long lhs_l = lhs.as_long;
     long const* rhs_l = value_as_long(rhs);
     return rhs_l != NULL ? result_success(new_integer(lhs_l + *rhs_l))
                          : result_error(ERROR_UNSUPORTED_OP);
@@ -28,7 +26,7 @@ RuntimeResult integer_add(Bytes lhs, Value const* rhs, Stack* stack) {
 
 RuntimeResult integer_sub(Bytes lhs, Value const* rhs, Stack* stack) {
     (void) stack;
-    long lhs_l = b_to_long(lhs);
+    long lhs_l = lhs.as_long;
     long const* rhs_l = value_as_long(rhs);
     return rhs_l != NULL ? result_success(new_integer(lhs_l - *rhs_l))
                          : result_error(ERROR_UNSUPORTED_OP);
@@ -36,14 +34,14 @@ RuntimeResult integer_sub(Bytes lhs, Value const* rhs, Stack* stack) {
 
 RuntimeResult integer_to_int(Bytes lhs, Stack* stack) {
     (void) stack;
-    long lhs_l = b_to_long(lhs);
+    long lhs_l = lhs.as_long;
     return result_success(new_integer(lhs_l));
 }
 
 // string
 RuntimeResult string_add(Bytes lhs, Value const* rhs, Stack* stack) {
     (void) stack;
-    char* lhs_s = b_to_char_star(lhs);
+    char* lhs_s = lhs.as_str;
     char* const* rhs_s = value_as_string(rhs);
     if (rhs_s != NULL) {
         char* new_str = malloc(strlen(lhs_s) + strlen(*rhs_s) + 1);
@@ -63,7 +61,7 @@ RuntimeResult string_sub(Bytes lhs, Value const* rhs, Stack* stack) {
 
 RuntimeResult string_to_int(Bytes lhs, Stack* stack) {
     (void) stack;
-    char* lhs_s = b_to_char_star(lhs);
+    char* lhs_s = lhs.as_str;
     char* endptr;
     long new_int = strtol(lhs_s, &endptr, 10);
     return *endptr == '\0' ? result_success(new_integer(new_int))
@@ -85,15 +83,11 @@ static ValueTable const STRING_TABLE = {
 };
 
 Value new_integer(long i) {
-    Value v = {.table = &INTEGER_TABLE};
-    memcpy(v.bytes.buf, &i, sizeof i);
-    return v;
+    return (Value){.table = &INTEGER_TABLE, .bytes.as_long = i};
 }
 
 Value new_string(char* s) {
-    Value v = {.table = &STRING_TABLE};
-    memcpy(v.bytes.buf, &s, sizeof s);
-    return v;
+    return (Value){.table = &STRING_TABLE, .bytes.as_str = s};
 }
 
 Value new_string_from(char const* s) {

@@ -1,14 +1,17 @@
 #ifndef VALUE_H
 #define VALUE_H
 
-#include "bytes.h"
-
 #include <stdio.h>
 #include <sys/types.h>
 
 typedef struct Stack Stack;
 typedef struct RuntimeResult RuntimeResult;
 typedef struct Value Value;
+
+typedef union Bytes {
+    long as_long;
+    char* as_str;
+} Bytes;
 
 typedef RuntimeResult (*BinOp)(Bytes, Value const*, Stack*);
 typedef RuntimeResult (*UnaryOp)(Bytes, Stack*);
