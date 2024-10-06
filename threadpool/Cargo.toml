@@ -1,0 +1,11 @@
+[package]
+name = "threadpool"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oneshot = "0.1.8"
+parking_lot = "0.12.3"
+
+[dev-dependencies]
+assert_matches = "1.5.0"
