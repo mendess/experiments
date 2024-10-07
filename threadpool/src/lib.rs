@@ -5,10 +5,7 @@ use std::{
     any::Any,
     collections::BinaryHeap,
     panic::{self, AssertUnwindSafe, UnwindSafe},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
     thread,
 };
 
@@ -125,9 +122,14 @@ impl<'t> JobBuilder<'t, Cancelable> {
     }
 }
 
-pub struct ThreadPoolInner {
-    queue: Mutex<BinaryHeap<Job>>,
-    shutting_down: AtomicBool,
+#[derive(Default)]
+struct ThreadPoolState {
+    queue: BinaryHeap<Job>,
+    shutting_down: bool,
+}
+
+struct ThreadPoolInner {
+    state: Mutex<ThreadPoolState>,
     has_jobs: Condvar,
 }
 
@@ -150,8 +152,7 @@ impl ThreadPool {
 
     pub fn new_with_size(size: usize) -> Self {
         let inner = Arc::new(ThreadPoolInner {
-            queue: Mutex::new(BinaryHeap::new()),
-            shutting_down: AtomicBool::new(false),
+            state: Mutex::new(Default::default()),
             has_jobs: Condvar::new(),
         });
 
@@ -159,30 +160,25 @@ impl ThreadPool {
         let threads = (0..size)
             .map(|_| {
                 let inner = inner.clone();
-                let stop = pool_stop_token.clone();
+                let pool_stop_token = pool_stop_token.clone();
                 thread::spawn(move || {
-                    let ThreadPoolInner {
-                        queue,
-                        shutting_down,
-                        has_jobs,
-                    } = &*inner;
+                    let ThreadPoolInner { state, has_jobs } = &*inner;
 
-                    while stop.should_continue() {
-                        let mut queue = queue.lock();
+                    loop {
+                        let mut guard = state.lock();
                         let job = loop {
-                            if stop.should_cancel() {
+                            if pool_stop_token.should_cancel() {
                                 return;
                             }
-                            let Some(job) = queue.pop() else {
-                                if shutting_down.load(Ordering::Acquire) {
-                                    return;
-                                }
-                                has_jobs.wait(&mut queue);
-                                continue;
-                            };
-                            break job;
+                            if let Some(job) = guard.queue.pop() {
+                                break job;
+                            }
+                            if guard.shutting_down {
+                                return;
+                            }
+                            has_jobs.wait(&mut guard);
                         };
-                        drop(queue);
+                        drop(guard);
                         (job.fun)();
                     }
                 })
@@ -190,8 +186,8 @@ impl ThreadPool {
             .collect();
 
         Self {
-            pool_stop_token,
             inner,
+            pool_stop_token,
             threads,
         }
     }
@@ -205,12 +201,15 @@ impl ThreadPool {
     }
 
     fn submit(&self, job: Job) {
-        self.inner.queue.lock().push(job);
+        self.inner.state.lock().queue.push(job);
         self.inner.has_jobs.notify_one();
     }
 
     pub fn stop_all(self) {
-        self.pool_stop_token.cancel();
+        {
+            let _g = self.inner.state.lock();
+            self.pool_stop_token.cancel();
+        }
         self.inner.has_jobs.notify_all();
         for t in self.threads {
             let _ = t.join();
@@ -218,7 +217,7 @@ impl ThreadPool {
     }
 
     pub fn wait(self) {
-        self.inner.shutting_down.store(true, Ordering::Release);
+        self.inner.state.lock().shutting_down = true;
         self.inner.has_jobs.notify_all();
         for t in self.threads {
             let _ = t.join();

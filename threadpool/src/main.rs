@@ -31,14 +31,22 @@ fn main() {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        thread::{sleep, yield_now},
-        time::Duration,
-    };
+    use std::{thread::yield_now, time::Duration};
 
     use assert_matches::assert_matches;
 
-    use threadpool::ThreadPool;
+    use threadpool::{JointStopToken, ThreadPool};
+
+    #[must_use]
+    fn cancelable_sleep(token: &JointStopToken, duration: Duration) -> bool {
+        for _ in 0..duration.as_millis() {
+            if token.should_cancel() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(1))
+        }
+        false
+    }
 
     #[test]
     fn simple() {
@@ -51,15 +59,12 @@ mod test {
     #[test]
     fn cancelable() {
         let pool = ThreadPool::new_with_size(1);
-        let promise = pool
-            .new_job()
-            .cancelable()
-            .submit::<_, Option<()>>(|token| {
-                while token.should_continue() {
-                    yield_now();
-                }
-                None
-            });
+        let promise = pool.new_job().cancelable().submit(|token| {
+            while token.should_continue() {
+                yield_now();
+            }
+            None::<()>
+        });
 
         assert_eq!(promise.cancel(), Some(None));
     }
@@ -69,15 +74,16 @@ mod test {
         let pool = ThreadPool::new_with_size(3);
         let promise = pool.new_job().submit(|| 42);
 
+        let (tx, rx) = oneshot::channel();
         let c_promise = pool.new_job().cancelable().submit(|token| {
-            sleep(Duration::from_secs(2));
-            if token.should_cancel() {
-                return None;
+            let _ = tx.send(());
+            while token.should_continue() {
+                yield_now()
             }
-            Some(42)
+            None::<()>
         });
 
-        sleep(Duration::from_secs(1));
+        let _ = rx.recv();
         pool.stop_all();
         let forty_two = promise.wait();
 
@@ -89,11 +95,11 @@ mod test {
     #[test]
     fn canceling_before_job_runs_returns_none() {
         let pool = ThreadPool::new_with_size(2);
-        pool.new_job().submit(|| {
-            sleep(Duration::from_secs(1));
+        pool.new_job().cancelable().submit(|token| {
+            let _ = cancelable_sleep(&token, Duration::from_secs(1));
         });
-        pool.new_job().submit(|| {
-            sleep(Duration::from_secs(1));
+        pool.new_job().cancelable().submit(|token| {
+            let _ = cancelable_sleep(&token, Duration::from_secs(1));
         });
 
         let c_promise = pool.new_job().cancelable().submit(|_| 1);
@@ -102,24 +108,6 @@ mod test {
 
         let wait = c_promise.wait();
         assert_matches!(wait, None);
-    }
-
-    #[test]
-    fn canceling_pool_stops_jobs_no_sleep() {
-        let pool = ThreadPool::new_with_size(1);
-        let promise = pool
-            .new_job()
-            .cancelable()
-            .submit::<_, Option<()>>(|token| {
-                while token.should_continue() {
-                    yield_now();
-                }
-                None
-            });
-
-        pool.stop_all();
-
-        assert_matches!(promise.wait(), None | Some(None));
     }
 
     #[test]
@@ -168,14 +156,39 @@ mod test {
 
     #[test]
     fn wait_all_waits_for_long_running_jobs() {
-        let pool = ThreadPool::new_with_size(2);
-        let promise = pool.new_job().submit(|| {
-            sleep(Duration::from_secs(1));
-            42
+        let pool = ThreadPool::new_with_size(1);
+        let promise1 = pool.new_job().submit(|| {
+            std::thread::sleep(Duration::from_millis(100));
+            1
         });
+        let promise2 =
+            pool.new_job()
+                .cancelable()
+                .submit(|token| if token.should_cancel() { 0 } else { 2 });
+        let promise3 = pool.new_job().submit(|| 3);
 
         pool.wait();
-        assert_eq!(promise.wait(), Some(42));
+        assert_eq!(promise1.wait(), Some(1));
+        assert_eq!(promise2.wait(), Some(2));
+        assert_eq!(promise3.wait(), Some(3));
+    }
+
+    #[test]
+    fn stop_all_does_not_wait_for_long_running_jobs() {
+        let pool = ThreadPool::new_with_size(1);
+        let promise1 = pool.new_job().cancelable().submit(|token| {
+            if cancelable_sleep(&token, Duration::from_secs(1)) {
+                return None;
+            }
+            Some(1)
+        });
+        let promise2 = pool.new_job().submit(|| 2);
+        let promise3 = pool.new_job().submit(|| 3);
+
+        pool.stop_all();
+        assert_matches!(promise1.wait(), None | Some(None));
+        assert_matches!(promise2.wait(), None);
+        assert_matches!(promise3.wait(), None);
     }
 
     #[test]
