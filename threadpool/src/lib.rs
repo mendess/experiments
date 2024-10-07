@@ -11,7 +11,8 @@ use std::{
 
 use parking_lot::{Condvar, Mutex};
 use promise::Promise;
-pub use stop_token::{JointStopToken, StopToken};
+use stop_token::StopToken;
+pub use stop_token::{job_should_cancel, job_should_continue};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Debug, Default)]
 pub struct Priority(i8);
@@ -26,13 +27,29 @@ impl From<i8> for Priority {
 pub struct Cancelable(StopToken);
 pub struct Uncacelable;
 
+pub trait CancelationPolicy {
+    fn token(&self) -> Option<StopToken>;
+}
+
+impl CancelationPolicy for Cancelable {
+    fn token(&self) -> Option<StopToken> {
+        Some(self.0.clone())
+    }
+}
+
+impl CancelationPolicy for Uncacelable {
+    fn token(&self) -> Option<StopToken> {
+        None
+    }
+}
+
 pub struct JobBuilder<'t, S> {
     priority: Priority,
     cancelable: S,
     pool: &'t ThreadPool,
 }
 
-impl<'t, S> JobBuilder<'t, S> {
+impl<'t, S: CancelationPolicy> JobBuilder<'t, S> {
     pub fn cancelable(self) -> JobBuilder<'t, Cancelable> {
         JobBuilder {
             priority: self.priority,
@@ -59,22 +76,21 @@ impl<'t, S> JobBuilder<'t, S> {
             response: rx,
         }
     }
-}
 
-impl<'t> JobBuilder<'t, Uncacelable> {
     pub fn submit_and_forget<F>(self, f: F)
     where
         F: FnOnce() + Send + UnwindSafe + 'static,
     {
         self.pool.submit(Job {
             priority: self.priority,
+            stop_token: self.cancelable.token(),
             fun: Box::new(|| {
                 let _ = panic::catch_unwind(f);
             }),
         })
     }
 
-    pub fn submit<F, R>(self, f: F) -> Promise<R, Uncacelable>
+    pub fn submit<F, R>(self, f: F) -> Promise<R, S>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -82,40 +98,9 @@ impl<'t> JobBuilder<'t, Uncacelable> {
         let (tx, rx) = oneshot::channel();
         let job = Job {
             priority: self.priority,
+            stop_token: self.cancelable.token(),
             fun: Box::new(move || {
                 let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(f)));
-            }),
-        };
-        self.submit_impl(rx, job)
-    }
-}
-
-impl<'t> JobBuilder<'t, Cancelable> {
-    pub fn submit_and_forget<F>(self, f: F)
-    where
-        F: FnOnce(StopToken) + Send + UnwindSafe + 'static,
-    {
-        let stop_token = self.pool.pool_stop_token.clone();
-        self.pool.submit(Job {
-            priority: self.priority,
-            fun: Box::new(move || {
-                let _ = panic::catch_unwind(|| f(stop_token));
-            }),
-        })
-    }
-
-    pub fn submit<F, R>(self, f: F) -> Promise<R, Cancelable>
-    where
-        F: FnOnce(JointStopToken) -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        let (tx, rx) = oneshot::channel();
-        let stop_token =
-            JointStopToken(self.pool.pool_stop_token.clone(), self.cancelable.0.clone());
-        let job = Job {
-            priority: self.priority,
-            fun: Box::new(move || {
-                let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(|| f(stop_token))));
             }),
         };
         self.submit_impl(rx, job)
@@ -162,12 +147,13 @@ impl ThreadPool {
                 let inner = inner.clone();
                 let pool_stop_token = pool_stop_token.clone();
                 thread::spawn(move || {
+                    stop_token::init_worker_token(pool_stop_token);
                     let ThreadPoolInner { state, has_jobs } = &*inner;
 
                     loop {
                         let mut guard = state.lock();
                         let job = loop {
-                            if pool_stop_token.should_cancel() {
+                            if stop_token::worker_should_cancel() {
                                 return;
                             }
                             if let Some(job) = guard.queue.pop() {
@@ -179,6 +165,7 @@ impl ThreadPool {
                             has_jobs.wait(&mut guard);
                         };
                         drop(guard);
+                        let _guard = job.stop_token.map(stop_token::set_job_token);
                         (job.fun)();
                     }
                 })
@@ -227,6 +214,7 @@ impl ThreadPool {
 
 struct Job {
     priority: Priority,
+    stop_token: Option<StopToken>,
     fun: Box<dyn FnOnce() + Send>,
 }
 

@@ -10,9 +10,9 @@ fn main() {
         42
     });
 
-    let c_promise = pool.new_job().cancelable().submit(|token| {
+    let c_promise = pool.new_job().cancelable().submit(|| {
         sleep(Duration::from_secs(2));
-        if token.should_cancel() {
+        if threadpool::job_should_cancel() {
             return None;
         }
         println!("cancelable hello world");
@@ -35,12 +35,12 @@ mod test {
 
     use assert_matches::assert_matches;
 
-    use threadpool::{JointStopToken, ThreadPool};
+    use threadpool::ThreadPool;
 
     #[must_use]
-    fn cancelable_sleep(token: &JointStopToken, duration: Duration) -> bool {
+    fn cancelable_sleep(duration: Duration) -> bool {
         for _ in 0..duration.as_millis() {
-            if token.should_cancel() {
+            if threadpool::job_should_cancel() {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(1))
@@ -59,8 +59,8 @@ mod test {
     #[test]
     fn cancelable() {
         let pool = ThreadPool::new_with_size(1);
-        let promise = pool.new_job().cancelable().submit(|token| {
-            while token.should_continue() {
+        let promise = pool.new_job().cancelable().submit(|| {
+            while threadpool::job_should_continue() {
                 yield_now();
             }
             None::<()>
@@ -75,9 +75,9 @@ mod test {
         let promise = pool.new_job().submit(|| 42);
 
         let (tx, rx) = oneshot::channel();
-        let c_promise = pool.new_job().cancelable().submit(|token| {
+        let c_promise = pool.new_job().cancelable().submit(|| {
             let _ = tx.send(());
-            while token.should_continue() {
+            while threadpool::job_should_continue() {
                 yield_now()
             }
             None::<()>
@@ -95,14 +95,14 @@ mod test {
     #[test]
     fn canceling_before_job_runs_returns_none() {
         let pool = ThreadPool::new_with_size(2);
-        pool.new_job().cancelable().submit(|token| {
-            let _ = cancelable_sleep(&token, Duration::from_secs(1));
+        pool.new_job().cancelable().submit(|| {
+            let _ = cancelable_sleep(Duration::from_secs(1));
         });
-        pool.new_job().cancelable().submit(|token| {
-            let _ = cancelable_sleep(&token, Duration::from_secs(1));
+        pool.new_job().cancelable().submit(|| {
+            let _ = cancelable_sleep(Duration::from_secs(1));
         });
 
-        let c_promise = pool.new_job().cancelable().submit(|_| 1);
+        let c_promise = pool.new_job().cancelable().submit(|| 1);
 
         pool.stop_all();
 
@@ -114,14 +114,14 @@ mod test {
     fn canceling_a_job_does_not_impact_others() {
         let pool = ThreadPool::new_with_size(4);
         let (tx1, rx1) = oneshot::channel::<()>();
-        let promise1 = pool.new_job().cancelable().submit(|_| {
+        let promise1 = pool.new_job().cancelable().submit(|| {
             let _ = rx1.recv();
             Some(42)
         });
         let (tx2, rx2) = oneshot::channel::<()>();
-        let promise2 = pool.new_job().cancelable().submit(|token| {
+        let promise2 = pool.new_job().cancelable().submit(|| {
             let _ = rx2.recv();
-            while token.should_continue() {
+            while threadpool::job_should_continue() {
                 yield_now();
             }
             None::<()>
@@ -161,10 +161,13 @@ mod test {
             std::thread::sleep(Duration::from_millis(100));
             1
         });
-        let promise2 =
-            pool.new_job()
-                .cancelable()
-                .submit(|token| if token.should_cancel() { 0 } else { 2 });
+        let promise2 = pool.new_job().cancelable().submit(|| {
+            if threadpool::job_should_cancel() {
+                0
+            } else {
+                2
+            }
+        });
         let promise3 = pool.new_job().submit(|| 3);
 
         pool.wait();
@@ -176,8 +179,8 @@ mod test {
     #[test]
     fn stop_all_does_not_wait_for_long_running_jobs() {
         let pool = ThreadPool::new_with_size(1);
-        let promise1 = pool.new_job().cancelable().submit(|token| {
-            if cancelable_sleep(&token, Duration::from_secs(1)) {
+        let promise1 = pool.new_job().cancelable().submit(|| {
+            if cancelable_sleep(Duration::from_secs(1)) {
                 return None;
             }
             Some(1)
