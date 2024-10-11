@@ -5,12 +5,12 @@ use threadpool::ThreadPool;
 
 fn main() {
     let pool = ThreadPool::new_with_size(3);
-    let promise = pool.new_job().with_priority(1).submit(|| {
+    let promise = pool.new_job().with_priority(1).output(|| {
         println!("hello world");
         42
     });
 
-    let c_promise = pool.new_job().cancelable().submit(|| {
+    let c_promise = pool.new_job().cancelable().output(|| {
         sleep(Duration::from_secs(2));
         if threadpool::job_should_cancel() {
             return None;
@@ -51,7 +51,7 @@ mod test {
     #[test]
     fn simple() {
         let pool = ThreadPool::new_with_size(1);
-        let promise = pool.new_job().submit(|| 42);
+        let promise = pool.new_job().output(|| 42);
 
         assert_eq!(promise.wait(), Some(42));
     }
@@ -59,7 +59,7 @@ mod test {
     #[test]
     fn cancelable() {
         let pool = ThreadPool::new_with_size(1);
-        let promise = pool.new_job().cancelable().submit(|| {
+        let promise = pool.new_job().cancelable().output(|| {
             while threadpool::job_should_continue() {
                 yield_now();
             }
@@ -72,10 +72,10 @@ mod test {
     #[test]
     fn canceling_pool_stops_jobs() {
         let pool = ThreadPool::new_with_size(3);
-        let promise = pool.new_job().submit(|| 42);
+        let promise = pool.new_job().output(|| 42);
 
         let (tx, rx) = oneshot::channel();
-        let c_promise = pool.new_job().cancelable().submit(|| {
+        let c_promise = pool.new_job().cancelable().output(|| {
             let _ = tx.send(());
             while threadpool::job_should_continue() {
                 yield_now()
@@ -102,7 +102,7 @@ mod test {
             let _ = cancelable_sleep(Duration::from_secs(1));
         });
 
-        let c_promise = pool.new_job().cancelable().submit(|| 1);
+        let c_promise = pool.new_job().cancelable().output(|| 1);
 
         pool.stop_all();
 
@@ -114,12 +114,12 @@ mod test {
     fn canceling_a_job_does_not_impact_others() {
         let pool = ThreadPool::new_with_size(4);
         let (tx1, rx1) = oneshot::channel::<()>();
-        let promise1 = pool.new_job().cancelable().submit(|| {
+        let promise1 = pool.new_job().cancelable().output(|| {
             let _ = rx1.recv();
             Some(42)
         });
         let (tx2, rx2) = oneshot::channel::<()>();
-        let promise2 = pool.new_job().cancelable().submit(|| {
+        let promise2 = pool.new_job().cancelable().output(|| {
             let _ = rx2.recv();
             while threadpool::job_should_continue() {
                 yield_now();
@@ -127,7 +127,7 @@ mod test {
             None::<()>
         });
         let (tx3, rx3) = oneshot::channel::<()>();
-        let promise3 = pool.new_job().submit(|| {
+        let promise3 = pool.new_job().output(|| {
             let _ = rx3.recv();
             42
         });
@@ -157,18 +157,18 @@ mod test {
     #[test]
     fn wait_all_waits_for_long_running_jobs() {
         let pool = ThreadPool::new_with_size(1);
-        let promise1 = pool.new_job().submit(|| {
+        let promise1 = pool.new_job().output(|| {
             std::thread::sleep(Duration::from_millis(100));
             1
         });
-        let promise2 = pool.new_job().cancelable().submit(|| {
+        let promise2 = pool.new_job().cancelable().output(|| {
             if threadpool::job_should_cancel() {
                 0
             } else {
                 2
             }
         });
-        let promise3 = pool.new_job().submit(|| 3);
+        let promise3 = pool.new_job().output(|| 3);
 
         pool.wait();
         assert_eq!(promise1.wait(), Some(1));
@@ -179,14 +179,14 @@ mod test {
     #[test]
     fn stop_all_does_not_wait_for_long_running_jobs() {
         let pool = ThreadPool::new_with_size(1);
-        let promise1 = pool.new_job().cancelable().submit(|| {
+        let promise1 = pool.new_job().cancelable().output(|| {
             if cancelable_sleep(Duration::from_secs(1)) {
                 return None;
             }
             Some(1)
         });
-        let promise2 = pool.new_job().submit(|| 2);
-        let promise3 = pool.new_job().submit(|| 3);
+        let promise2 = pool.new_job().output(|| 2);
+        let promise3 = pool.new_job().output(|| 3);
 
         pool.stop_all();
         assert_matches!(promise1.wait(), None | Some(None));
@@ -199,7 +199,7 @@ mod test {
     fn panics_are_propagated() {
         let pool = ThreadPool::new_with_size(1);
 
-        let fut = pool.new_job().submit(|| panic!("lol"));
+        let fut = pool.new_job().output(|| panic!("lol"));
 
         let _ = fut.wait();
     }

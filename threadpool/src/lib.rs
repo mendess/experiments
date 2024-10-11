@@ -2,9 +2,8 @@ mod promise;
 mod stop_token;
 
 use std::{
-    any::Any,
     collections::BinaryHeap,
-    panic::{self, AssertUnwindSafe, UnwindSafe},
+    panic::{self, AssertUnwindSafe},
     sync::Arc,
     thread,
 };
@@ -65,45 +64,36 @@ impl<'t, S: CancelationPolicy> JobBuilder<'t, S> {
         }
     }
 
-    fn submit_impl<R>(
-        self,
-        rx: oneshot::Receiver<Result<R, Box<dyn Any + Send>>>,
-        job: Job,
-    ) -> Promise<R, S> {
-        self.pool.submit(job);
-        Promise {
-            cancelable: self.cancelable,
-            response: rx,
-        }
-    }
-
-    pub fn submit_and_forget<F>(self, f: F)
+    pub fn submit<F>(self, f: F)
     where
-        F: FnOnce() + Send + UnwindSafe + 'static,
+        F: FnOnce() + Send + 'static,
     {
         self.pool.submit(Job {
             priority: self.priority,
             stop_token: self.cancelable.token(),
             fun: Box::new(|| {
-                let _ = panic::catch_unwind(f);
+                let _ = panic::catch_unwind(AssertUnwindSafe(f));
             }),
         })
     }
 
-    pub fn submit<F, R>(self, f: F) -> Promise<R, S>
+    pub fn output<F, R>(self, f: F) -> Promise<R, S>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
-        let job = Job {
+        self.pool.submit(Job {
             priority: self.priority,
             stop_token: self.cancelable.token(),
             fun: Box::new(move || {
                 let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(f)));
             }),
-        };
-        self.submit_impl(rx, job)
+        });
+        Promise {
+            cancelable: self.cancelable,
+            response: rx,
+        }
     }
 }
 
