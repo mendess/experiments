@@ -1,4 +1,4 @@
-use super::*;
+use crate::types::{DirLight, Light, LightPoint, ParseErr, SpotLight, XmlElement};
 
 impl TryFrom<&XmlElement> for DirLight {
     type Error = ParseErr;

@@ -1,4 +1,4 @@
-use super::{DirLight, Light, LightPoint, ParseErr, SpotLight, XmlElement};
+use crate::types::{DirLight, Light, LightPoint, ParseErr, SpotLight, XmlElement};
 
 pub trait FromXmlElement: Sized {
     // not needed if I hardcoded the error type, but I felt like it
