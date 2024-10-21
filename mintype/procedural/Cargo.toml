@@ -1,0 +1,11 @@
+[package]
+name = "procedural"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+proc-macro2 = "1.0.88"
+syn = { version = "2.0.82", features = ["extra-traits"] }
+
+[lib]
+proc-macro = true

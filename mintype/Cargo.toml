@@ -1,0 +1,11 @@
+[package]
+name = "mintype"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+procedural = { path = "./procedural" }
+declarative = { path = "./declarative" }
+
+[workspace]
+members = ["procedural", "declarative"]
