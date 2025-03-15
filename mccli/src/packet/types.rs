@@ -55,7 +55,7 @@ macro_rules! VarNum {
                 let mut current_byte = 0u8;
                 let mut int = 0;
                 for i in 0..128 {
-                    tracing::debug!("reading byte {i}");
+                    tracing::debug!("reading byte at index {i}");
                     r.read_exact(std::slice::from_mut(&mut current_byte))?;
 
                     int |= <$int>::from(current_byte & Self::SEGMENT_BITS) << len;
