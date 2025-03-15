@@ -2,36 +2,18 @@ mod packet;
 
 use anyhow::Context;
 use clap::Parser;
-use packet::{Packet, types};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use mccli::fetch_server_info;
+use mccli::types;
+use std::net::ToSocketAddrs;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _};
-
-fn fetch_server_info(addr: SocketAddr) -> anyhow::Result<types::server::Status> {
-    tracing::info!("connecting to: {addr}");
-    let mut socket = TcpStream::connect(addr)?;
-
-    tracing::info!("sending handshake");
-    Packet::handshake(769).write(&mut socket)?;
-
-    tracing::info!("requesting status");
-    Packet::status_request().write(&mut socket)?;
-
-    tracing::info!("reading status");
-    let response = Packet::read(&mut socket)?;
-
-    let text = response.reader().next::<types::String>()?;
-
-    tracing::debug!(%text, "text");
-
-    Ok(serde_json::from_str(&text)?)
-}
 
 #[derive(Parser)]
 struct Args {
     addr: String,
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().pretty())
         .with(EnvFilter::from_default_env())
@@ -45,7 +27,8 @@ fn main() -> anyhow::Result<()> {
             .context("getting socket address")?
             .next()
             .unwrap(),
-    )?;
+    )
+    .await?;
     println!("Server is online:");
     println!("Version: {}", info.version.name);
     println!("Players: {}/{}", info.players.online, info.players.max);
