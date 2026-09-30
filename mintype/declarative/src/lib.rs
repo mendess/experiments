@@ -3,8 +3,18 @@ pub use condtype::CondType;
 
 #[macro_export]
 macro_rules! min_type {
-    ($pivot:literal, $($numeric:ty),+) => {
+    ($pivot:literal: $($numeric:ty),+) => {
         <$crate::fits_pivot!($pivot, $($numeric),*) as $crate::Min>::Output
+    };
+}
+
+#[macro_export]
+macro_rules! min_t {
+    ($(type $name:ident = $pivot:literal: $($numeric:ty),+);*$(;)?) => {
+        $(
+        type $name = <$crate::fits_pivot!($pivot, $($numeric),*) as $crate::Min>::Output;
+        const _: () = { let _: $name = $pivot; };
+        )*
     };
 }
 

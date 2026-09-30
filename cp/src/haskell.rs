@@ -36,11 +36,13 @@ pub const fn flip<A, B, C>(f: impl Fn(A, B) -> C) -> impl Fn(B, A) -> C {
     move |b, a| f(a, b)
 }
 
+// :: (a -> c) -> (b -> c) -> Either a b -> c
+//
 pub const fn either<A, B, C>(
     f: impl FnOnce(A) -> C,
     g: impl FnOnce(B) -> C,
 ) -> impl FnOnce(Either<A, B>) -> C {
-    |either| either.map_either(f, g).either_into()
+    |either| either.either(f, g)
 }
 
 pub trait HigherKindType {

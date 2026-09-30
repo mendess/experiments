@@ -10,7 +10,7 @@ use syn::{
 #[derive(Debug)]
 struct Input {
     literal: LitInt,
-    _comma: Token![,],
+    _comma: Token![:],
     types: Punctuated<Type, Token![,]>,
 }
 

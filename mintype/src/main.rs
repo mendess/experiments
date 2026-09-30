@@ -1,9 +1,12 @@
 mod decl {
-    use declarative::min_type;
+    use declarative::{min_t, min_type};
 
-    type N = min_type!(300, u16, u8, i64, u32);
-    type N10 = min_type!(10, u16, u8);
-    // type NError = min_type!(1_000_000, u16, u8, u8);
+    type N = min_type!(300: u16, u8, i64, u32);
+
+    min_t! {
+        type N10 = 10: u16, u8;
+    }
+    // min_t!(type NError = 1_000_000: u16, u8, u8);
 
     pub fn main() {
         let a: N = 300;
@@ -18,8 +21,8 @@ mod decl {
 mod proc {
     use procedural::min_type;
 
-    type N = min_type!(300, u16, u8, i64, u32);
-    type N10 = min_type!(10, u16, u8);
+    type N = min_type!(300: u16, u8, i64, u32);
+    type N10 = min_type!(10: u16, u8);
     // type NError = min_type!(1_000_000, u16, u8, u8);
 
     pub fn main() {

@@ -248,13 +248,38 @@ pub fn coassocl<A, B, C>(e: Either<B, Either<A, C>>) -> Either<Either<B, A>, C> 
 /// distl :: (Either c a, b) -> Either (c, b) (a, b)
 /// distl = uncurry (either (curry i1)(curry i2))
 /// ```
+///
+/// i1 :: t -> Left t b
+///
+/// curry :: ((a, b) -> c) :: a -> b -> c
+///
+/// :t (curry i1)
+/// :: t0 -> t1 -> Either (t0, t1) x
+///
+/// :t (curry i2)
+/// :: v0 -> v1 -> Either y (v0, v1)
+///
+/// either :: (a -> c) -> (b -> c) -> Either a b -> c
+///
+/// :t cenas = either (curry i1) (curry i2)
+///
+/// :: (t0 -> t1 -> Either (t0, t1) x)
+///     -> (v0 -> v1 -> Either y (v0, v1))
+///     -> Either (t0, t1) (v0, v1)
+///     -> Either (t0, t1) (v0, v1)
+///
+/// cenas :: Either (t0, t1) (v0, v1)
+///     -> Either (t0, t1) (v0, v1)
+///
+/// uncurry cenas :: (Either (t0, t1) (v0, v1), ???)
+///     ->
 pub fn distl<A, B, C>(tuple: (Either<C, A>, B)) -> Either<(C, B), (A, B)> {
     // I've been defeated
     // uncurry(either(curry(i1), curry(i2)))(tuple)
     let (e, b) = tuple;
     match e {
-        Either::Left(c) => Either::Left((c, b)),
-        Either::Right(a) => Either::Right((a, b)),
+        Either::Left(c) => i1((c, b)),
+        Either::Right(a) => i2((a, b)),
     }
 }
 
